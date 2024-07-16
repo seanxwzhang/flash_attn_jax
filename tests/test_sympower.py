@@ -5,7 +5,7 @@ import pytest
 
 from flash_attn_jax import flash_mha
 import flash_attn_jax_lib.flash_api as flash_api
-from .test_flash import check
+from .test_flash import check, ref_mha
 
 def ref_sympow(q, k, v, p=2, eps=1e-6):
     [n, l, h, d] = q.shape
@@ -43,23 +43,26 @@ def test_sympow_fwd(p, n, seqlen, h, d, local, dtype):
     window_size = (10, 0) if local else (-1, -1)
     # window_size = (-1, -1)
     
-    # q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
-    # k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
-    # v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+    q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
+    k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
+    v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
     
-    q = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1)).transpose(0, 2, 1, 3)
+    # q = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1))
 
-    k = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1)).transpose(0, 2, 1, 3)
+    # k = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1))
     
-    v = q
+    # v = q
     
+    ref_out_softmax = ref_mha(q, k, v, is_causal=True, window_size=window_size)
     ref_out = ref_sympow(q, k, v, p)
     q = q.astype(dtype)
     k = k.astype(dtype)
     v = v.astype(dtype)
     
     jax_out = ref_sympow(q, k, v, p)
+    jax_softmax_out = ref_mha(q, k, v, is_causal=True, window_size=window_size)
     flash_out, lse, p = flash_mha(q, k, v, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)
-    import pdb; pdb.set_trace()
+    flash_out_softmax = flash_mha(q, k, v, is_causal=True, window_size=window_size)
+
     check(ref_out, jax_out, flash_out)
     
