@@ -328,9 +328,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         if (Return_softmax) {
             Tensor rP_drop = make_fragment_like(rP);
             cute::copy(rP, rP_drop);
-            // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-            //     rP_drop, block_row_idx, block_col_idx, kNWarps
-            // );
+            dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+                rP_drop, block_row_idx, block_col_idx, kNWarps
+            );
             cute::copy(rP_drop, tSgS);
             tSgS.data() = tSgS.data() + (-kBlockN);
         }
