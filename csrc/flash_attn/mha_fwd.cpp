@@ -41,6 +41,7 @@ void mha_fwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opa
 	void* v = buffers[2];
 	void* o = buffers[3];
 	void* lse = buffers[4];
+    void* p = buffers[5];
 
 	mha_fwd_args args = Unpack<mha_fwd_args>(opaque, opaque_len);
         // const float p_dropout,
@@ -152,11 +153,11 @@ void mha_fwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opa
 
 
     // auto softmax_lse = torch::empty({batch_size, num_heads, seqlen_q}, opts.dtype(at::kFloat));
-	void* p = nullptr;
+	// void* p = nullptr;
     // // at::Tensor p;
     // // Only return softmax if there's dropout to reduce compilation time
     if (args.return_softmax) {
-		CHECK(false, "no return softmax");
+		// CHECK(false, "no return softmax");
         // TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
         // p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
     }
@@ -172,12 +173,14 @@ void mha_fwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opa
                      /*cu_seqlens_q_d=*/nullptr,
                      /*cu_seqlens_k_d=*/nullptr,
                      /*seqused_k=*/nullptr,
-                     args.return_softmax ? p : nullptr,
+                     p,
                      lse,
                      args.p_dropout,
                      args.softmax_scale,
                      args.window_size_left,
-                     args.window_size_right);
+                     args.window_size_right,
+                     args.similarity,
+                     args.deg);
 
 
 	int sm_count;
