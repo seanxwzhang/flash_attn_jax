@@ -26,8 +26,8 @@ from .ring_attention import ring_fwd, ring_bwd
 
 # ==== Sharding ====
 
-_flash_mha_fwd_hlo_sharded = custom_partitioning(_flash_mha_fwd_hlo, static_argnums=(3,4,5,6))
-_flash_mha_bwd_hlo_sharded = custom_partitioning(_flash_mha_bwd_hlo, static_argnums=(6,7,8,9))
+_flash_mha_fwd_hlo_sharded = custom_partitioning(_flash_mha_fwd_hlo, static_argnums=(3,4,5,6,7))
+_flash_mha_bwd_hlo_sharded = custom_partitioning(_flash_mha_bwd_hlo, static_argnums=(6,7,8,9,10))
 
 from jax._src.ad_checkpoint import _optimization_barrier
 

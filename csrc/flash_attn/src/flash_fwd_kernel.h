@@ -318,8 +318,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
         // TODO: when we have key_padding_mask we'll need to Check_inf
         masking_step == 0
-            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2)
-            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2);
+            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2)
+            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2);
 
         // Convert acc_s from fp32 to fp16/bf16
         Tensor rP = flash::convert_type<Element>(acc_s);
@@ -328,9 +328,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
         if (Return_softmax) {
             Tensor rP_drop = make_fragment_like(rP);
             cute::copy(rP, rP_drop);
-            dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
-                rP_drop, block_row_idx, block_col_idx, kNWarps
-            );
+            // dropout.template apply_dropout</*encode_dropout_in_sign_bit=*/true>(
+            //     rP_drop, block_row_idx, block_col_idx, kNWarps
+            // );
             cute::copy(rP_drop, tSgS);
             tSgS.data() = tSgS.data() + (-kBlockN);
         }
@@ -383,7 +383,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16
         );
 
-        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2);
+        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local>(acc_s, acc_o, params.scale_softmax_log2);
 
         Tensor rP = flash::convert_type<Element>(acc_s);
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
@@ -888,8 +888,8 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
 
         // We have key_padding_mask so we'll need to Check_inf
         masking_step == 0
-            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local || !Is_even_MN, Element>(acc_s, acc_o, params.scale_softmax_log2)
-            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local || !Is_even_MN, Element>(acc_s, acc_o, params.scale_softmax_log2);
+            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local || !Is_even_MN>(acc_s, acc_o, params.scale_softmax_log2)
+            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local || !Is_even_MN>(acc_s, acc_o, params.scale_softmax_log2);
         // if (cute::thread0()) { print(scores_max); print(scores_sum); print(scores); }
 
         // Convert acc_s from fp32 to fp16/bf16
@@ -953,7 +953,7 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         mask.template apply_mask</*Causal_mask=*/false>(
             acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16
         );
-        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2);
+        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local>(acc_s, acc_o, params.scale_softmax_log2);
 
         Tensor rP = flash::convert_type<Element>(acc_s);
         // Reshape rP from (MMA=4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)

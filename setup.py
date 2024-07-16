@@ -163,8 +163,11 @@ if not SKIP_CUDA_BUILD:
             ],
             extra_compile_args = {
                 "cxx": ["-O3", "-std=c++17"],
+                # "cxx": ["-std=c++17"],
                 "nvcc": append_nvcc_threads(
                     [
+                        # "-g",
+                        # "-G",
                         "-O3",
                         "-std=c++17",
                         "-U__CUDA_NO_HALF_OPERATORS__",

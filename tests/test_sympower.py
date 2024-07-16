@@ -10,7 +10,8 @@ from .test_flash import check
 def ref_sympow(q, k, v, p=2, eps=1e-6):
     [n, l, h, d] = q.shape
     D = jnp.einsum('nlhd,nLhd->nhlL', q, k)
-    D /= d**0.5
+    print(D)
+    # D /= d**0.5
     log_C = p * jnp.log(jnp.abs(D) + eps)
     log_C = jnp.where(jnp.tril(jnp.ones(log_C.shape)), log_C, -jnp.inf)
     log_C -= log_C.max(axis=-1, keepdims=True)
@@ -33,17 +34,24 @@ def ref_sympow(q, k, v, p=2, eps=1e-6):
 
 @pytest.mark.parametrize("dtype", [jnp.float16])
 @pytest.mark.parametrize("local", ['local'])
-@pytest.mark.parametrize("d", [59])
-@pytest.mark.parametrize("h", [4])
-@pytest.mark.parametrize("seqlen", [128])
-@pytest.mark.parametrize("n", [4])
+@pytest.mark.parametrize("d", [4])
+@pytest.mark.parametrize("h", [1])
+@pytest.mark.parametrize("seqlen", [8])
+@pytest.mark.parametrize("n", [1])
 @pytest.mark.parametrize("p", [2])
 def test_sympow_fwd(p, n, seqlen, h, d, local, dtype):
     window_size = (10, 0) if local else (-1, -1)
+    # window_size = (-1, -1)
     
-    q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
-    k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
-    v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+    # q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
+    # k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
+    # v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+    
+    q = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1)).transpose(0, 2, 1, 3)
+
+    k = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1)).transpose(0, 2, 1, 3)
+    
+    v = q
     
     ref_out = ref_sympow(q, k, v, p)
     q = q.astype(dtype)
@@ -51,6 +59,7 @@ def test_sympow_fwd(p, n, seqlen, h, d, local, dtype):
     v = v.astype(dtype)
     
     jax_out = ref_sympow(q, k, v, p)
-    flash_out = flash_mha(q, k, v, window_size=window_size, similarity=flash_api.sympower, deg=p)
+    flash_out, lse, p = flash_mha(q, k, v, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)
+    import pdb; pdb.set_trace()
     check(ref_out, jax_out, flash_out)
     

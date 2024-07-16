@@ -62,38 +62,19 @@ __device__ __forceinline__ void reduce_sum(Tensor<Engine0, Layout0> const& tenso
 }
 
 // Apply abs to all elements.
-template <typename Element, typename Engine0, typename Layout0>
-__forceinline__ __device__ void apply_abslogp(Tensor<Engine0, Layout0> &tensor, const float epsilon, const int power) {
-    using ElementType = typename Engine0::element_type;
+template <typename Engine0, typename Layout0>
+__forceinline__ __device__ void apply_abslogp(Tensor<Engine0, Layout0> &scores, const float epsilon, const int power) {
     static_assert(Layout0::rank == 2, "Only support 2D Tensor");
     #pragma unroll
-    for (int mi = 0; mi < size<0>(tensor); ++mi) {
+    for (int mi = 0; mi < size<0>(scores); ++mi) {
         #pragma unroll
-        for (int ni = 1; ni < size<1>(tensor); ++ni) {
-            tensor(mi, ni) = logf(cuda_abs(tensor(mi, ni)) * power + epsilon);
+        for (int ni = 0; ni < size<1>(scores); ++ni) {
+            // maintain semantics of mask
+            scores(mi, ni) = scores(mi, ni) == -INFINITY ? -INFINITY : power * __logf(cuda_abs(scores(mi, ni)) + epsilon);
         }
     }
 }
 
-
-// // Apply the stable sympower to all the elements
-// template < typename Engine0, typename Layout0, typename Engine1, typename Layout1>
-// __forceinline__ __device__ void apply_sympow(Tensor<Engine0, Layout0> &tensor, Tensor<Engine1, Layout1> const &max, const uint power) {
-//     static_assert(Layout0::rank == 2, "Only support 2D Tensor");
-//     static_assert(Layout1::rank == 1, "Only support 1D Tensor");
-//     CUTE_STATIC_ASSERT_V(size<0>(max) == size<0>(tensor));
-//     #pragma unroll
-//     for (int mi = 0; mi < size<0>(tensor); ++mi) {
-//         // If max is -inf, then all elements must have been -inf (possibly due to masking).
-//         // We don't want log(-inf)) since that would give NaN.
-//         // If we don't have float around M_LOG2E the multiplication is done in fp64.
-//         const float max_log = max(mi) == -INFINITY ? 0.f : max(mi);
-//         #pragma unroll
-//         for (int ni = 0; ni < size<1>(tensor); ++ni)  {
-//             tensor(mi, ni) = expf(tensor(mi, ni) * power - max_log);
-//         }
-//     }
-// }
 
 
 // Apply the exp to all the elements.
@@ -162,14 +143,14 @@ struct Softmax {
 
     __forceinline__ __device__ Softmax(bool is_sympower, int deg) {is_sympower = is_sympower; deg = deg;};
 
-    template<bool Is_first, bool Check_inf=false, typename Element, typename Tensor0, typename Tensor1>
+    template<bool Is_first, bool Check_inf=false, typename Tensor0, typename Tensor1>
     __forceinline__ __device__ void softmax_rescale_o(Tensor0 &acc_s, Tensor1 &acc_o, float softmax_scale_log2) {
         // Reshape acc_s from (MMA=4, MMA_M, MMA_N) to (nrow=(2, MMA_M), ncol=(2, MMA_N))
         Tensor scores = make_tensor(acc_s.data(), flash::convert_layout_acc_rowcol(acc_s.layout()));
         static_assert(decltype(size<0>(scores))::value == kNRows);
-        if (is_sympower) {
-            flash::template apply_abslogp<Element>(scores, 1e-6f, deg);
-        }
+        // if (is_sympower) {
+        //     flash::template apply_abslogp(scores, 1e-6f, deg);
+        // }
         if (Is_first) {
             flash::template reduce_max</*zero_init=*/true>(scores, row_max);
             flash::scale_apply_exp2(scores, row_max, softmax_scale_log2);
