@@ -44,6 +44,11 @@ void set_params_fprop(Flash_fwd_params &params,
     memset(&params, 0, sizeof(params));
 
     params.is_bf16 = element_type == BF16;
+
+    printf("similarity: %d\n", similarity);
+    printf("type of similarity: %s\n", typeid(similarity).name());
+    printf("is it sympower: %d\n", similarity == sympower);
+    printf("is it sympower:: %s\n", similarity == sympower ? "true" : "false");
     params.is_sympower = similarity == sympower;
     params.deg = deg;
 

@@ -476,6 +476,16 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         Tensor scores = make_tensor(acc_s.data(), flash::convert_layout_acc_rowcol(acc_s.layout()));
         // if (cute::thread(32, 0)) { print(scores); }
 
+        // Apply abslogp, but first keep the original scores
+        Tensor scores_orig = make_tensor_like(scores);
+
+        if (params.is_sympower) {
+            flash::apply_abslogp(scores, 1e-6f, params.deg);
+            for (int i = 0; i < size(scores); ++i) {
+                scores_orig(i) = scores(i);
+            }
+        }
+
         if (Has_alibi) {
             alibi.apply_alibi(scores, n_block * kBlockN + (tidx / 32 / AtomLayoutMS) * MMA_N_SdP * 16,
                               m_block * kBlockM + get<0>(taccScS_row(0)), AtomLayoutMS * 16);
@@ -571,11 +581,23 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
         auto pointwise_mult = [](float p, float dp, float d) {
             return p * (!Is_dropout || p >= 0 ? dp - d : d);
         };
-        #pragma unroll
-        for (int mi = 0; mi < size<0>(dS); ++mi) {
+        if (params.is_sympower) {
             #pragma unroll
-            for (int ni = 0; ni < size<1>(dS); ++ni) {
-                dS(mi, ni) = pointwise_mult(scores(mi, ni), dS(mi, ni), dP_sum(mi));
+            for (int mi = 0; mi < size<0>(dS); ++mi) {
+                #pragma unroll
+                for (int ni = 0; ni < size<1>(dS); ++ni) {
+                    dS(mi, ni) = pointwise_mult(scores(mi, ni), dS(mi, ni), dP_sum(mi));
+                    // one more backprop
+                    dS(mi, ni) = params.deg * signbit(scores_orig(mi, ni)) / scores_orig(mi, ni) * dS(mi, ni);
+                }
+            }
+        } else {
+            #pragma unroll
+            for (int mi = 0; mi < size<0>(dS); ++mi) {
+                #pragma unroll
+                for (int ni = 0; ni < size<1>(dS); ++ni) {
+                    dS(mi, ni) = pointwise_mult(scores(mi, ni), dS(mi, ni), dP_sum(mi));
+                }
             }
         }
         // if (cute::thread0()) { print(dS); }
