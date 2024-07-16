@@ -239,12 +239,13 @@ def _flash_mha_fwd_abstract(q, k, v, softmax_scale=None, is_causal=None, window_
     k_dtype = dtypes.canonicalize_dtype(k.dtype)
     v_dtype = dtypes.canonicalize_dtype(v.dtype)
     [n, l, h, d] = q.shape
+    [_, lk, _, _] = k.shape
     assert q_dtype == k_dtype and q_dtype == v_dtype
     assert q_dtype in [jnp.bfloat16, jnp.float16]
     return (
         ShapedArray(q.shape, q_dtype, named_shape=q.named_shape),
         ShapedArray([n, h, l], jnp.float32),
-        ShapedArray([n, h, l, l], jnp.float32)
+        ShapedArray([n, h, l, lk], jnp.float32)
     )
 _flash_mha_fwd_hlo_p.def_abstract_eval(_flash_mha_fwd_abstract)
 
