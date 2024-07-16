@@ -40,18 +40,17 @@ def ref_sympow(q, k, v, p=2, eps=1e-6):
 @pytest.mark.parametrize("n", [1])
 @pytest.mark.parametrize("p", [2])
 def test_sympow_fwd(p, n, seqlen, h, d, local, dtype):
-    window_size = (10, 0) if local else (-1, -1)
-    # window_size = (-1, -1)
+    # window_size = (10, 0) if local else (-1, -1)
+    window_size = (-1, -1)
     
-    q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
-    k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
-    v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+    # q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
+    # k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
+    # v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
     
-    # q = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1))
+    q = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1)).transpose(0, 2, 1, 3)
 
-    # k = jnp.tile(jnp.stack([jnp.ones(shape=[d])*i for i in range(1, seqlen+1)]), (n, h, 1, 1))
-    
-    # v = q
+    k = q
+    v = q
     
     ref_out_softmax = ref_mha(q, k, v, is_causal=True, window_size=window_size)
     ref_out = ref_sympow(q, k, v, p)
@@ -63,7 +62,7 @@ def test_sympow_fwd(p, n, seqlen, h, d, local, dtype):
     jax_softmax_out = ref_mha(q, k, v, is_causal=True, window_size=window_size)
     flash_out, lse, p = flash_mha(q, k, v, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)
     flash_out_softmax, lse_softmax, p_softmax = flash_mha(q, k, v, is_causal=True, window_size=window_size)
-    # import pdb; pdb.set_trace()
+    import pdb; pdb.set_trace()
     # check(ref_out, jax_out, flash_out)
     check(ref_out_softmax, jax_softmax_out, flash_out_softmax)
     
