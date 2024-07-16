@@ -19,7 +19,8 @@ struct mha_bwd_args {
 
 	ElementType dtype;
 	uint64_t seed;
-	SimilarityType similarity_type;
+	SimilarityType similarity;
+    int deg;
 };
 
 void mha_bwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opaque_len);

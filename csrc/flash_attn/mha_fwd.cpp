@@ -177,7 +177,9 @@ void mha_fwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opa
                      args.p_dropout,
                      args.softmax_scale,
                      args.window_size_left,
-                     args.window_size_right);
+                     args.window_size_right,
+                     args.similarity,
+                     args.deg);
 
 
 	int sm_count;

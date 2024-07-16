@@ -141,6 +141,8 @@ struct Flash_fwd_params : public Qkv_params {
     bool is_seqlens_k_cumulative;
 
     bool is_rotary_interleaved;
+    bool is_sympower;
+    int deg; // For sympower and other kernels
 
     int num_splits;  // For split-KV version
 

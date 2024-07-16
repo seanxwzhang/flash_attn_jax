@@ -260,7 +260,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
     clear(acc_o);
 
-    flash::Softmax<2 * size<1>(acc_o)> softmax;
+    flash::Softmax<2 * size<1>(acc_o)> softmax(params.is_sympower, params.deg);
 
     const float alibi_slope = !Has_alibi || params.alibi_slopes_ptr == nullptr ? 0.0f : reinterpret_cast<float *>(params.alibi_slopes_ptr)[bidb * params.alibi_slopes_batch_stride + bidh] / params.scale_softmax;
     flash::Mask<Is_causal, Is_local, Has_alibi> mask(binfo.actual_seqlen_k, binfo.actual_seqlen_q, params.window_size_left, params.window_size_right, alibi_slope);
@@ -318,8 +318,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
 
         // TODO: when we have key_padding_mask we'll need to Check_inf
         masking_step == 0
-            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2)
-            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local>(acc_s, acc_o, params.scale_softmax_log2);
+            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2)
+            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2);
 
         // Convert acc_s from fp32 to fp16/bf16
         Tensor rP = flash::convert_type<Element>(acc_s);
@@ -383,7 +383,7 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
             acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16
         );
 
-        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local>(acc_s, acc_o, params.scale_softmax_log2);
+        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2);
 
         Tensor rP = flash::convert_type<Element>(acc_s);
         int block_row_idx = m_block * (kBlockM / 16) + tidx / 32;
@@ -811,7 +811,7 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
 
     clear(acc_o);
 
-    flash::Softmax<2 * size<1>(acc_o)> softmax;
+    flash::Softmax<2 * size<1>(acc_o)> softmax(params.is_sympower, params.deg);
 
     const float alibi_slope = !Has_alibi ? 0.0f : reinterpret_cast<float *>(params.alibi_slopes_ptr)[bidb * params.alibi_slopes_batch_stride + bidh] / params.scale_softmax;
     flash::Mask<Is_causal, Is_local, Has_alibi> mask(binfo.actual_seqlen_k, binfo.actual_seqlen_q, params.window_size_left, params.window_size_right, alibi_slope);
@@ -888,8 +888,8 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
 
         // We have key_padding_mask so we'll need to Check_inf
         masking_step == 0
-            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local || !Is_even_MN>(acc_s, acc_o, params.scale_softmax_log2)
-            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local || !Is_even_MN>(acc_s, acc_o, params.scale_softmax_log2);
+            ? softmax.template softmax_rescale_o</*Is_first=*/true,  /*Check_inf=*/Is_causal || Is_local || !Is_even_MN, Element>(acc_s, acc_o, params.scale_softmax_log2)
+            : softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_causal || Is_local || !Is_even_MN, Element>(acc_s, acc_o, params.scale_softmax_log2);
         // if (cute::thread0()) { print(scores_max); print(scores_sum); print(scores); }
 
         // Convert acc_s from fp32 to fp16/bf16
@@ -953,7 +953,7 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
         mask.template apply_mask</*Causal_mask=*/false>(
             acc_s, n_block * kBlockN, m_block * kBlockM + (tidx / 32) * 16 + (tidx % 32) / 4, kNWarps * 16
         );
-        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local>(acc_s, acc_o, params.scale_softmax_log2);
+        softmax.template softmax_rescale_o</*Is_first=*/false, /*Check_inf=*/Is_local, Element>(acc_s, acc_o, params.scale_softmax_log2);
 
         Tensor rP = flash::convert_type<Element>(acc_s);
         // Reshape rP from (MMA=4, MMA_M, MMA_N) to ((4, 2), MMA_M, MMA_N / 2)

@@ -318,8 +318,9 @@ pybind11::bytes make_mha_fwd_args(	float p_dropout,
 									int l_k, int h_k,
 									ElementType dtype,
 									uint64_t seed,
-									SimilarityType similarity_type) {
-	return PackDescriptor(mha_fwd_args{p_dropout, softmax_scale, is_causal, window_size_left, window_size_right, return_softmax, n, l, h, d, l_k, h_k, dtype, seed, similarity_type});
+									SimilarityType similarity,
+                                    int deg) {
+	return PackDescriptor(mha_fwd_args{p_dropout, softmax_scale, is_causal, window_size_left, window_size_right, return_softmax, n, l, h, d, l_k, h_k, dtype, seed, similarity, deg});
 }
 
 pybind11::bytes make_mha_bwd_args(	float p_dropout,
@@ -332,8 +333,9 @@ pybind11::bytes make_mha_bwd_args(	float p_dropout,
 									int l_k, int h_k,
 									ElementType dtype,
 									uint64_t seed,
-									SimilarityType similarity_type) {
-	return PackDescriptor(mha_bwd_args{p_dropout, softmax_scale, is_causal, window_size_left, window_size_right, deterministic, n, l, h, d, l_k, h_k, dtype, seed, similarity_type});
+									SimilarityType similarity,
+                                    int deg) {
+	return PackDescriptor(mha_bwd_args{p_dropout, softmax_scale, is_causal, window_size_left, window_size_right, deterministic, n, l, h, d, l_k, h_k, dtype, seed, similarity, deg});
 }
 
 pybind11::dict Registrations() {
