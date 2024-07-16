@@ -12,6 +12,11 @@
 
 enum ElementType { BF16, FP16, FP32 };
 
+enum SimilarityType {
+    sympower,
+    softmax
+};
+
 void set_params_fprop(Flash_fwd_params &params,
 					  ElementType element_type,
                       // sizes
@@ -38,6 +43,8 @@ void set_params_fprop(Flash_fwd_params &params,
                       float softmax_scale,
                       int window_size_left,
                       int window_size_right,
+                      SimilarityType similarity,
+                      int deg,
                       bool seqlenq_ngroups_swapped=false);
 
 void set_params_splitkv(Flash_fwd_params &params, const int batch_size,
@@ -57,3 +64,4 @@ inline T Unpack(const void* opaque, size_t opaque_len) {
 	memcpy(&out, opaque, opaque_len);
 	return out;
 }
+

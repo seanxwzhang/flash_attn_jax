@@ -39,12 +39,12 @@ _custom_call_p.def_impl(partial(xla.apply_primitive, _custom_call_p))
 
 # ==== Primitive wrapper ====
 
-def _flash_mha_fwd_hlo(q, k, v, softmax_scale, is_causal, window_size):
-    out, lse = _flash_mha_fwd_hlo_p.bind(q, k, v, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size)
-    return out, lse
+def _flash_mha_fwd_hlo(q, k, v, softmax_scale, is_causal, window_size, similarity, deg):
+    out, lse, p = _flash_mha_fwd_hlo_p.bind(q, k, v, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity, deg=deg)
+    return out, lse, p
 
-def _flash_mha_bwd_hlo(dout, q, k, v, out, lse, softmax_scale, is_causal, window_size):
-    dq, dk, dv = _flash_mha_bwd_hlo_p.bind(dout, q, k, v, out, lse, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size)
+def _flash_mha_bwd_hlo(dout, q, k, v, out, lse, softmax_scale, is_causal, window_size, similarity, deg):
+    dq, dk, dv = _flash_mha_bwd_hlo_p.bind(dout, q, k, v, out, lse, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity, deg=deg)
     return dq, dk, dv
 
 def custom_call(*args, call_target_name, result_types, backend_config, operand_layouts, result_layouts):
@@ -69,7 +69,7 @@ def ir_type_to_dtype(ty):
         if ty == mlir.dtype_to_ir_type(dtype):
             return dtype
 
-def _flash_mha_fwd_hlo_lowering(ctx, q, k, v, softmax_scale=None, is_causal=False, window_size=None):
+def _flash_mha_fwd_hlo_lowering(ctx, q, k, v, softmax_scale=None, is_causal=False, window_size=None, similarity=flash_api.softmax, deg=1):
     q_type = ir.RankedTensorType(q.type)
     q_shape = q_type.shape
     k_type = ir.RankedTensorType(k.type)
@@ -92,11 +92,11 @@ def _flash_mha_fwd_hlo_lowering(ctx, q, k, v, softmax_scale=None, is_causal=Fals
         is_causal, # is_causal
         window_size[0], # window_size_left
         window_size[1], # window_size_right
-        False, # return_softmax
+        True, # return_softmax
         n, l, h, d,
         lk, hk,
         flash_api.BF16 if type(element_type) == ir.BF16Type else flash_api.FP16,
-        0)
+        0, similarity, deg)
 
     def fwd(q, k, v):
         dpad = (8 - d%8) % 8
@@ -111,14 +111,18 @@ def _flash_mha_fwd_hlo_lowering(ctx, q, k, v, softmax_scale=None, is_causal=Fals
         v_shape = [n, lk, hk, d+dpad]
         o_shape = [n, l, h, d+dpad]
         lse_shape = [n, h, l]
+        p_shape = [n, h, l, lk]
 
         
         lse_type = ir.RankedTensorType.get([n, h, l], mlir.dtype_to_ir_type(jnp.float32.dtype))
-        out_types = [ir.RankedTensorType.get(o_shape, element_type), lse_type]
+        p_type = ir.RankedTensorType.get([n, h, l, lk], mlir.dtype_to_ir_type(jnp.float32.dtype))
+        out_types = [ir.RankedTensorType.get(o_shape, element_type), lse_type, p_type]
+        # out_types = [ir.RankedTensorType.get(o_shape, element_type), lse_type]
         operand_layouts = default_layouts(q_shape, k_shape, v_shape)
-        result_layouts = default_layouts(o_shape, lse_shape)
+        result_layouts = default_layouts(o_shape, lse_shape, p_shape)
+        # result_layouts = default_layouts(o_shape, lse_shape)
 
-        o, lse = custom_call(
+        o, lse, p = custom_call(
             q, k, v,
             call_target_name = b"flash_mha_fwd",
             result_types=out_types,
@@ -129,7 +133,7 @@ def _flash_mha_fwd_hlo_lowering(ctx, q, k, v, softmax_scale=None, is_causal=Fals
 
         if dpad > 0:
             o = o[:,:,:,:d]
-        return o, lse
+        return o, lse, p
     return mlir.lower_fun(fwd, multiple_results=True)(ctx, q, k, v)
 
 mlir.register_lowering(
@@ -138,7 +142,7 @@ mlir.register_lowering(
     platform="gpu",
 )
 
-def _flash_mha_bwd_hlo_lowering(ctx, dout, q, k, v, out, lse, softmax_scale=None, is_causal=None, window_size=None):
+def _flash_mha_bwd_hlo_lowering(ctx, dout, q, k, v, out, lse, softmax_scale=None, is_causal=None, window_size=None, similarity=flash_api.softmax, deg=1):
     dout_type = ir.RankedTensorType(dout.type).element_type
     q_type = ir.RankedTensorType(q.type).element_type
     k_type = ir.RankedTensorType(k.type).element_type
@@ -180,7 +184,7 @@ def _flash_mha_bwd_hlo_lowering(ctx, dout, q, k, v, out, lse, softmax_scale=None
         n, lq, hq, d,
         lk, hk,
         flash_api.BF16 if type(q_type) == ir.BF16Type else flash_api.FP16,
-        0)
+        0, similarity, deg)
 
     def fwd(dout, q, k, v, out, lse):
         dpad = (8 - d%8) % 8
@@ -230,21 +234,23 @@ mlir.register_lowering(
 
 # ==== Abstract evaluation rules ====
 
-def _flash_mha_fwd_abstract(q, k, v, softmax_scale=None, is_causal=None, window_size=None):
+def _flash_mha_fwd_abstract(q, k, v, softmax_scale=None, is_causal=None, window_size=None, similarity=flash_api.softmax, deg=1):
     q_dtype = dtypes.canonicalize_dtype(q.dtype)
     k_dtype = dtypes.canonicalize_dtype(k.dtype)
     v_dtype = dtypes.canonicalize_dtype(v.dtype)
     [n, l, h, d] = q.shape
+    [_, lk, _, _] = k.shape
     assert q_dtype == k_dtype and q_dtype == v_dtype
     assert q_dtype in [jnp.bfloat16, jnp.float16]
     return (
         ShapedArray(q.shape, q_dtype, named_shape=q.named_shape),
-        ShapedArray([n, h, l], jnp.float32)
+        ShapedArray([n, h, l], jnp.float32),
+        ShapedArray([n, h, l, lk], jnp.float32)
     )
 _flash_mha_fwd_hlo_p.def_abstract_eval(_flash_mha_fwd_abstract)
 
 
-def _flash_mha_bwd_abstract(dout, q, k, v, out, lse, softmax_scale=None, is_causal=None, window_size=None):
+def _flash_mha_bwd_abstract(dout, q, k, v, out, lse, softmax_scale=None, is_causal=None, window_size=None, similarity=flash_api.softmax, deg=1):
     dout_dtype = dtypes.canonicalize_dtype(dout.dtype)
     q_dtype = dtypes.canonicalize_dtype(q.dtype)
     k_dtype = dtypes.canonicalize_dtype(k.dtype)
