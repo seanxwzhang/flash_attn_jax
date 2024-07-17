@@ -86,7 +86,6 @@ __device__ __forceinline__ float cuda_abs<float>(float value) {
 // Apply abs to all elements.
 template <typename Engine0, typename Layout0>
 __forceinline__ __device__ void apply_abslogp(Tensor<Engine0, Layout0> &scores, const float epsilon, const int power) {
-    printf("applying_abslogp\n");
     static_assert(Layout0::rank == 2, "Only support 2D Tensor");
     #pragma unroll
     for (int mi = 0; mi < size<0>(scores); ++mi) {
@@ -106,7 +105,6 @@ __forceinline__ __device__ void scale_apply_exp2(Tensor<Engine0, Layout0> &tenso
     static_assert(Layout0::rank == 2, "Only support 2D Tensor");
     static_assert(Layout1::rank == 1, "Only support 1D Tensor");
     CUTE_STATIC_ASSERT_V(size<0>(max) == size<0>(tensor));
-    printf("scores shape: %d, %d\n", size<0>(tensor), size<1>(tensor));
     #pragma unroll
     for (int mi = 0; mi < size<0>(tensor); ++mi) {
         // If max is -inf, then all elements must have been -inf (possibly due to masking).
