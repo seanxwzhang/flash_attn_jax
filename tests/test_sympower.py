@@ -161,14 +161,14 @@ def benchmark_bwd():
                             flash_grad_fn = partial(jax.grad(flash_fn), q, k, v)
                             jax_grad_fn = partial(jax.grad(jax_fn), q, k, v)
                             
-                            jax_time, jax_out = timer(jax.jit(flash_grad_fn))
-                            flash_time, flash_out = timer(jax.jit(jax_grad_fn))
+                            jax_time, jax_out = timer(jax.jit(jax_grad_fn))
+                            flash_time, flash_out = timer(jax.jit(flash_grad_fn))
                             speedup = (jax_time / flash_time - 1) * 100
                             dtype_str = str(dtype).split('.')[-1].strip("><'")
                             print(f"dtype={dtype_str}, d={d}, h={h}, seqlen={seqlen}, n={n}, p={p}, jax_time={jax_time:.4f}, flash_time={flash_time:.4f}, speedup={speedup:.2f}%")
 
 
 if __name__ == "__main__":
-    benchmark_fwd()
+    # benchmark_fwd()
     benchmark_bwd()
     #pytest.main([__file__])

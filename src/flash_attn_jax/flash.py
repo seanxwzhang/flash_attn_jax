@@ -133,7 +133,10 @@ def mha_fwd_batch(vector_arg_values, batch_axes, **kwargs):
     def unsquish(val):
         return einops.rearrange(val, f'(x n) ... -> x n ...', x=x)
     [q, k, v] = [squish(x, axis) for x, axis in zip(vector_arg_values, batch_axes)]
-    out, lse, _ = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
+    if RETURN_SOFTMAX:
+        out, lse, _ = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
+    else:
+        out, lse = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
     return (unsquish(out), unsquish(lse)), (0,0)
   elif mapped == (True, False, False):
     # This is just a GQA!
@@ -148,7 +151,10 @@ def mha_fwd_batch(vector_arg_values, batch_axes, **kwargs):
     def unsquish(val):
         return einops.rearrange(val, 'n l (h x) d -> x n l h d', x=x)
     [q, k, v] = [squish(x, axis) for x, axis in zip(vector_arg_values, batch_axes)]
-    out, lse, _ = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
+    if RETURN_SOFTMAX:
+        out, lse, _ = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
+    else:
+        out, lse = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
     out = einops.rearrange(out, 'n l (h x) d -> x n l h d', x=x)
     lse = einops.rearrange(lse, 'n (h x) l -> x n h l', x=x)
     return (out, lse), (0,0)
