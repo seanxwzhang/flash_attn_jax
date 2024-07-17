@@ -44,6 +44,8 @@ void set_params_dgrad(Flash_bwd_params &params,
                       float softmax_scale,
                       int window_size_left,
                       int window_size_right,
+                      SimilarityType similarity,
+                      int deg,
                       bool deterministic) {
 
     set_params_fprop(params, element_type,
@@ -57,7 +59,9 @@ void set_params_dgrad(Flash_bwd_params &params,
                      p_dropout,
                      softmax_scale,
                      window_size_left,
-                     window_size_right);
+                     window_size_right,
+                     similarity,
+                     deg);
 
     // Set the pointers and strides.
     params.do_ptr = dout_ptr;
@@ -317,6 +321,8 @@ mha_bwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opaque_l
                      args.softmax_scale,
                      window_size_left,
                      window_size_right,
+                     args.similarity,
+                     args.deg,
                      args.deterministic);
     params.dq_accum_split_stride = !args.deterministic ? 0 : (batch_size * seqlen_q_rounded * num_heads * head_size_rounded);
 

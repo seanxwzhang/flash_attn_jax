@@ -36,12 +36,16 @@ void set_params_fprop(Flash_fwd_params &params,
                       float softmax_scale,
                       int window_size_left,
                       int window_size_right,
+                      SimilarityType similarity,
+                      int deg,
                       bool seqlenq_ngroups_swapped) {
 
     // Reset the parameters
     memset(&params, 0, sizeof(params));
 
     params.is_bf16 = element_type == BF16;
+    params.is_sympower = similarity == sympower;
+    params.deg = deg;
 
     // Set the pointers and strides.
     params.q_ptr = q_ptr;

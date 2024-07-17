@@ -1,0 +1,82 @@
+import jax
+import jax.numpy as jnp
+import numpy as np
+import pytest
+from functools import partial
+
+from flash_attn_jax import flash_mha
+import flash_attn_jax_lib.flash_api as flash_api
+from .test_flash import check, ref_mha, pretty
+
+def ref_sympow(q, k, v, p=2, eps=1e-6):
+    [n, l, h, d] = q.shape
+    D = jnp.einsum('nlhd,nLhd->nhlL', q, k)
+    D /= d**0.5
+    log_C = p * jnp.log(jnp.abs(D) + eps)
+    log_C = jnp.where(jnp.tril(jnp.ones(log_C.shape)), log_C, -jnp.inf)
+    log_C -= log_C.max(axis=-1, keepdims=True)
+    
+    B = jnp.exp(log_C)
+    A = B / (B.sum(axis=-1, keepdims=True) + eps)
+    Y = jnp.einsum('nhlL,nLhd->nlhd', A, v)
+    return Y
+
+
+def loss(fn):
+    def loss_fn(q, k, v):
+        return jnp.sum(fn(q, k, v))
+    return loss_fn
+
+
+@pytest.mark.parametrize("dtype", [jnp.float16, jnp.bfloat16])
+@pytest.mark.parametrize("d", [59, 32])
+@pytest.mark.parametrize("h", [1, 4])
+@pytest.mark.parametrize("seqlen", [97, 128])
+@pytest.mark.parametrize("n", [1, 4])
+@pytest.mark.parametrize("p", [1, 2, 4, 8])
+def test_sympow_fwd(p, n, seqlen, h, d, dtype):
+    window_size = (-1, -1)
+    
+    q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
+    k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
+    v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+    
+    ref_out = ref_sympow(q, k, v, p)
+    q = q.astype(dtype)
+    k = k.astype(dtype)
+    v = v.astype(dtype)
+    
+    jax_out = ref_sympow(q, k, v, p)
+    flash_out = flash_mha(q, k, v, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)
+    check(ref_out, jax_out, flash_out)
+
+ 
+@pytest.mark.parametrize("dtype", [jnp.float16, jnp.bfloat16])
+@pytest.mark.parametrize("d", [59, 32])
+@pytest.mark.parametrize("h", [1, 4])
+@pytest.mark.parametrize("seqlen", [97, 128])
+@pytest.mark.parametrize("n", [1, 4])
+@pytest.mark.parametrize("p", [1, 2, 4, 8])
+def test_sympow_bwd(p, n, seqlen, h, d, dtype):
+    window_size = (-1, -1)
+    
+    q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
+    k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
+    v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+    
+    ref_out = ref_sympow(q, k, v, p)
+    ref_loss = loss(partial(ref_sympow, p=p))(q, k, v)
+    ref_grad = jax.grad(loss(partial(ref_sympow, p=p)))(q, k, v)
+    
+    q = q.astype(dtype)
+    k = k.astype(dtype)
+    v = v.astype(dtype)
+    
+    jax_out = ref_sympow(q, k, v, p)
+    jax_loss = loss(partial(ref_sympow, p=p))(q, k, v)
+    jax_grad = jax.grad(loss(partial(ref_sympow, p=p)))(q, k, v)
+    
+    flash_out = flash_mha(q, k, v, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)
+    flash_loss = loss(partial(flash_mha, softmax_scale=1.0, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p))(q, k, v)
+    flash_grad = jax.grad(loss(partial(flash_mha, softmax_scale=1.0, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)))(q, k, v)
+    check(ref_grad, jax_grad, flash_grad)

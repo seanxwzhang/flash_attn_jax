@@ -16,8 +16,11 @@ struct mha_bwd_args {
 	bool deterministic;
 	int n, l, h, d;
 	int l_k, h_k;
+
 	ElementType dtype;
 	uint64_t seed;
+	SimilarityType similarity;
+    int deg;
 };
 
 void mha_bwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opaque_len);

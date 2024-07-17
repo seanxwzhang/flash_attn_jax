@@ -21,6 +21,7 @@ from jax.sharding import PositionalSharding
 from einops import rearrange
 import einops
 import math
+import flash_attn_jax_lib.flash_api as flash_api
 
 from .flash_sharding import _flash_mha_fwd_hlo_sharded, _flash_mha_bwd_hlo_sharded
 
@@ -47,13 +48,20 @@ try:
 except Exception as e:
     pass
 
+# ==== Supported Similarities ====
+similarities = [flash_api.softmax, flash_api.sympower]
+
+def _check_similarity(similarity):
+    if similarity not in similarities:
+        raise ValueError(f"Similarity {similarity} not supported. Must be one of {similarities}")
+
 # ==== Primitive frontends ====
 
-def _flash_mha_fwd(q,k,v, softmax_scale, is_causal, window_size):
-    return tuple(_flash_mha_fwd_p.bind(q,k,v, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size))
+def _flash_mha_fwd(q,k,v, softmax_scale, is_causal, window_size, similarity, deg):
+    return tuple(_flash_mha_fwd_p.bind(q,k,v, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity, deg=deg))
 
-def _flash_mha_bwd(dout, q, k, v, out, lse, softmax_scale, is_causal, window_size):
-    return tuple(_flash_mha_bwd_p.bind(dout, q, k, v, out, lse, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size))
+def _flash_mha_bwd(dout, q, k, v, out, lse, softmax_scale, is_causal, window_size, similarity, deg):
+    return tuple(_flash_mha_bwd_p.bind(dout, q, k, v, out, lse, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity, deg=deg))
 
 # ==== HLO lowering ====
 
@@ -71,21 +79,23 @@ mlir.register_lowering(
 
 # ==== Abstract evaluation rules ====
 
-def _flash_mha_fwd_abstract(q, k, v, softmax_scale=None, is_causal=None, window_size=None):
+def _flash_mha_fwd_abstract(q, k, v, softmax_scale=None, is_causal=None, window_size=None, similarity=flash_api.softmax, deg=1):
     q_dtype = dtypes.canonicalize_dtype(q.dtype)
     k_dtype = dtypes.canonicalize_dtype(k.dtype)
     v_dtype = dtypes.canonicalize_dtype(v.dtype)
     [n, l, h, d] = q.shape
+    [_, lk, _, _] = k.shape
     assert q_dtype == k_dtype and q_dtype == v_dtype
     assert q_dtype in [jnp.bfloat16, jnp.float16]
     return (
         ShapedArray(q.shape, q_dtype, named_shape=q.named_shape),
-        ShapedArray([n, h, l], jnp.float32)
+        ShapedArray([n, h, l], jnp.float32),
+        ShapedArray([n, h, l, lk], jnp.float32),
     )
 _flash_mha_fwd_p.def_abstract_eval(_flash_mha_fwd_abstract)
 
 
-def _flash_mha_bwd_abstract(dout, q, k, v, out, lse, softmax_scale=None, is_causal=None, window_size=None):
+def _flash_mha_bwd_abstract(dout, q, k, v, out, lse, softmax_scale=None, is_causal=None, window_size=None, similarity=flash_api.softmax, deg=1):
     dout_dtype = dtypes.canonicalize_dtype(dout.dtype)
     q_dtype = dtypes.canonicalize_dtype(q.dtype)
     k_dtype = dtypes.canonicalize_dtype(k.dtype)
@@ -117,7 +127,7 @@ def mha_fwd_batch(vector_arg_values, batch_axes, **kwargs):
     def unsquish(val):
         return einops.rearrange(val, f'(x n) ... -> x n ...', x=x)
     [q, k, v] = [squish(x, axis) for x, axis in zip(vector_arg_values, batch_axes)]
-    out, lse = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
+    out, lse, _ = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
     return (unsquish(out), unsquish(lse)), (0,0)
   elif mapped == (True, False, False):
     # This is just a GQA!
@@ -132,7 +142,7 @@ def mha_fwd_batch(vector_arg_values, batch_axes, **kwargs):
     def unsquish(val):
         return einops.rearrange(val, 'n l (h x) d -> x n l h d', x=x)
     [q, k, v] = [squish(x, axis) for x, axis in zip(vector_arg_values, batch_axes)]
-    out, lse = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
+    out, lse, _ = _flash_mha_fwd_p.bind(q, k, v, **kwargs)
     out = einops.rearrange(out, 'n l (h x) d -> x n l h d', x=x)
     lse = einops.rearrange(lse, 'n (h x) l -> x n h l', x=x)
     return (out, lse), (0,0)
@@ -209,7 +219,7 @@ class _flash_mha_vjp:
     def base(q,k,v,config):
         return _flash_mha_fwd(q,k,v, **config)[0]
     def fwd(q,k,v,config):
-        out, lse = _flash_mha_fwd(q,k,v, **config)
+        out, lse, _ = _flash_mha_fwd(q,k,v, **config)
         return out, (q,k,v,out,lse)
     def bwd(config, pack, dout):
         (q,k,v,out,lse) = pack
@@ -218,7 +228,7 @@ class _flash_mha_vjp:
 
 # ==== Frontend ====
 
-def flash_mha(q,k,v,softmax_scale=None, is_causal=False, window_size=(-1,-1)):
+def flash_mha(q,k,v,softmax_scale=None, is_causal=False, window_size=(-1,-1), similarity=flash_api.softmax, deg=1):
     """Flash attention.
 
     softmax_scale defaults to 1/sqrt(d) and must be a python float if
@@ -228,9 +238,15 @@ def flash_mha(q,k,v,softmax_scale=None, is_causal=False, window_size=(-1,-1)):
     assert len(q.shape) == 4
     assert len(k.shape) == 4
     assert len(v.shape) == 4
+    _check_similarity(similarity)
 
-    if softmax_scale is None:
+    if softmax_scale is None and similarity == flash_api.softmax:
         softmax_scale = 1/math.sqrt(q.shape[-1])
+    else:
+        softmax_scale = 1.0
     assert type(softmax_scale) is float
-    o = _flash_mha_vjp(q,k,v,dict(softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size))
+    o = _flash_mha_vjp(q,k,v,dict(softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity, deg=deg))
     return o
+
+SOFTMAX=flash_api.softmax
+SYMPOWER=flash_api.sympower
