@@ -25,6 +25,9 @@ import flash_attn_jax_lib.flash_api as flash_api
 
 from .flash_sharding import _flash_mha_fwd_hlo_sharded, _flash_mha_bwd_hlo_sharded
 
+# This is a toggle that, when changed, requires rebuilding the wheel
+RETURN_SOFTMAX = False
+
 # ==== Register primitives ====
 
 # We do this with two sets of primitives, so that we can implement vjp
@@ -87,6 +90,11 @@ def _flash_mha_fwd_abstract(q, k, v, softmax_scale=None, is_causal=None, window_
     [_, lk, _, _] = k.shape
     assert q_dtype == k_dtype and q_dtype == v_dtype
     assert q_dtype in [jnp.bfloat16, jnp.float16]
+    if not RETURN_SOFTMAX:
+        return (
+            ShapedArray(q.shape, q_dtype, named_shape=q.named_shape),
+            ShapedArray([n, h, l], jnp.float32),
+        )
     return (
         ShapedArray(q.shape, q_dtype, named_shape=q.named_shape),
         ShapedArray([n, h, l], jnp.float32),
@@ -219,7 +227,10 @@ class _flash_mha_vjp:
     def base(q,k,v,config):
         return _flash_mha_fwd(q,k,v, **config)[0]
     def fwd(q,k,v,config):
-        out, lse, _ = _flash_mha_fwd(q,k,v, **config)
+        if RETURN_SOFTMAX:
+            out, lse, _ = _flash_mha_fwd(q,k,v, **config)
+        else:
+            out, lse = _flash_mha_fwd(q,k,v, **config)
         return out, (q,k,v,out,lse)
     def bwd(config, pack, dout):
         (q,k,v,out,lse) = pack

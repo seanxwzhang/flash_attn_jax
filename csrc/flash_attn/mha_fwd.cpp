@@ -156,11 +156,11 @@ void mha_fwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opa
 	// void* p = nullptr;
     // // at::Tensor p;
     // // Only return softmax if there's dropout to reduce compilation time
-    if (args.return_softmax) {
+    // if (args.return_softmax) {
 		// CHECK(false, "no return softmax");
         // TORCH_CHECK(p_dropout > 0.0f, "return_softmax is only supported when p_dropout > 0.0");
         // p = torch::empty({ batch_size, num_heads, seqlen_q_rounded, seqlen_k_rounded }, opts);
-    }
+    // }
 
     Flash_fwd_params params;
     set_params_fprop(params, args.dtype,
@@ -173,7 +173,7 @@ void mha_fwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opa
                      /*cu_seqlens_q_d=*/nullptr,
                      /*cu_seqlens_k_d=*/nullptr,
                      /*seqused_k=*/nullptr,
-                     p,
+                     args.return_softmax ? p : nullptr,
                      lse,
                      args.p_dropout,
                      args.softmax_scale,
