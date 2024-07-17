@@ -24,9 +24,7 @@ import math
 import flash_attn_jax_lib.flash_api as flash_api
 
 from .flash_sharding import _flash_mha_fwd_hlo_sharded, _flash_mha_bwd_hlo_sharded
-
-# This is a toggle that, when changed, requires rebuilding the wheel
-RETURN_SOFTMAX = False
+from .flash_hlo import RETURN_SOFTMAX
 
 # ==== Register primitives ====
 

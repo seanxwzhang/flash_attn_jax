@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from functools import partial
+import time
 
 from flash_attn_jax import flash_mha
 import flash_attn_jax_lib.flash_api as flash_api
@@ -80,3 +81,94 @@ def test_sympow_bwd(p, n, seqlen, h, d, dtype):
     flash_loss = loss(partial(flash_mha, softmax_scale=1.0, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p))(q, k, v)
     flash_grad = jax.grad(loss(partial(flash_mha, softmax_scale=1.0, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)))(q, k, v)
     check(ref_grad, jax_grad, flash_grad)
+
+
+def timer(fn, warmup=10, number=50):
+    for _ in range(warmup):
+        fn().block_until_ready()
+        
+    start = time.time()
+    for _ in range(number):
+        res = fn().block_until_ready()
+    
+    return (time.time() - start) / number, res
+
+
+
+def benchmark_fwd():
+    print("Benchmarking fwd")
+    for dtype in [jnp.float16, jnp.bfloat16]:
+        for d in [32, 64, 128]:
+            for h in [6]:
+                for seqlen in [128, 1024, 4096, 8192]:
+                    for n in [1, 4]:
+                        for p in [2, 4, 8]:
+                            window_size = (-1, -1)
+
+                            q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
+                            k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
+                            v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+
+                            q = q.astype(dtype)
+                            k = k.astype(dtype)
+                            v = v.astype(dtype)
+
+                            def flash_fn():
+                                return flash_mha(q, k, v, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)
+
+                            def jax_fn():
+                                return ref_sympow(q, k, v, p)
+                            
+                            def ref_fn(q, k, v):
+                                q, k, v = q.astype(jnp.float32), k.astype(jnp.float32), v.astype(jnp.float32)
+                                return ref_sympow(q, k, v, p)
+                            
+                            ref_out = ref_fn(q, k, v)
+                            
+                            jax_time, jax_out = timer(jax.jit(jax_fn))
+                            flash_time, flash_out = timer(jax.jit(flash_fn))
+                            speedup = (jax_time / flash_time - 1) * 100
+                            dtype_str = str(dtype).split('.')[-1].strip("><'")
+                            print(f"dtype={dtype_str}, d={d}, h={h}, seqlen={seqlen}, n={n}, p={p}, jax_time={jax_time:.4f}, flash_time={flash_time:.4f}, speedup={speedup:.2f}%")
+
+
+def benchmark_bwd():
+    print("Benchmarking bwd")
+    for dtype in [jnp.float16, jnp.bfloat16]:
+        for d in [32, 64, 128]:
+            for h in [6]:
+                for seqlen in [128, 1024, 4096, 8192]:
+                    for n in [1, 4]:
+                        for p in [2, 4, 8]:
+                            window_size = (-1, -1)
+
+                            q = jax.random.normal(jax.random.PRNGKey(0), [n, seqlen, h, d], dtype=jnp.float32)
+                            k = jax.random.normal(jax.random.PRNGKey(1), [n, seqlen, h, d], dtype=jnp.float32)
+                            v = jax.random.normal(jax.random.PRNGKey(2), [n, seqlen, h, d], dtype=jnp.float32)
+
+                            q = q.astype(dtype)
+                            k = k.astype(dtype)
+                            v = v.astype(dtype)
+
+                            def flash_fn(q, k, v):
+                                out = flash_mha(q, k, v, is_causal=True, window_size=window_size, similarity=flash_api.sympower, deg=p)
+                                return jnp.sum(out**.2)
+
+                            def jax_fn(q, k, v):
+                                out = ref_sympow(q, k, v, p)
+                                return jnp.sum(out**.2)
+                            
+                            flash_grad_fn = partial(jax.grad(flash_fn), q, k, v)
+                            jax_grad_fn = partial(jax.grad(jax_fn), q, k, v)
+                            
+                            jax_time, jax_out = timer(jax.jit(flash_grad_fn))
+                            flash_time, flash_out = timer(jax.jit(jax_grad_fn))
+                            speedup = (jax_time / flash_time - 1) * 100
+                            dtype_str = str(dtype).split('.')[-1].strip("><'")
+                            print(f"dtype={dtype_str}, d={d}, h={h}, seqlen={seqlen}, n={n}, p={p}, jax_time={jax_time:.4f}, flash_time={flash_time:.4f}, speedup={speedup:.2f}%")
+
+
+if __name__ == "__main__":
+    benchmark_fwd()
+    benchmark_bwd()
+    #pytest.main([__file__])

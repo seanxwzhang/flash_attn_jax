@@ -22,7 +22,9 @@ import einops
 import math
 
 import flash_attn_jax_lib.flash_api as flash_api
-from flash_attn_jax.flash import RETURN_SOFTMAX
+
+# This is a toggle that, when changed, requires rebuilding the wheel
+RETURN_SOFTMAX = False
 
 # ==== Register primitives ====
 
