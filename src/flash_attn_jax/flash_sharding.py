@@ -34,7 +34,7 @@ from jax._src.ad_checkpoint import _optimization_barrier
 def is_replicated(sharding):
     return (isinstance(sharding, PositionalSharding) and sharding.shape == (1,)) or (isinstance(sharding, NamedSharding) and len(sharding.spec) == 0)
 
-def partition_fwd(softmax_scale, is_causal, window_size, similarity, mesh, arg_shapes, result_shape):
+def partition_fwd(softmax_scale, is_causal, window_size, similarity, deg, mesh, arg_shapes, result_shape):
     result_shardings = jax.tree_map(lambda x: x.sharding, result_shape)
     arg_shardings = jax.tree_map(lambda x: x.sharding, arg_shapes)
 
@@ -62,15 +62,15 @@ def partition_fwd(softmax_scale, is_causal, window_size, similarity, mesh, arg_s
             axis_name = l
             axis_size = mesh.shape[axis_name]
             # ring attention
-            return mesh, partial(ring_fwd, softmax_scale=softmax_scale, is_causal=is_causal, axis_name=axis_name, axis_size=axis_size, similarity=similarity, mha_fwd=_flash_mha_fwd_hlo), result_shardings, arg_shardings
+            return mesh, partial(ring_fwd, softmax_scale=softmax_scale, is_causal=is_causal, axis_name=axis_name, axis_size=axis_size, similarity=similarity, deg=deg, mha_fwd=_flash_mha_fwd_hlo), result_shardings, arg_shardings
         else:
             result_shardings = q_sharding, NamedSharding(mesh, P(n,h,l))
             arg_shardings = q_sharding, q_sharding, q_sharding
     def fwd(q,k,v):
-        return _flash_mha_fwd_hlo(q,k,v, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity)
+        return _flash_mha_fwd_hlo(q,k,v, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity, deg=deg)
     return mesh, fwd, result_shardings, arg_shardings
 
-def infer_sharding_fwd(softmax_scale, is_causal, window_size, similarity, mesh, arg_shapes, result_shape):
+def infer_sharding_fwd(softmax_scale, is_causal, window_size, similarity, deg, mesh, arg_shapes, result_shape):
     arg_shardings = jax.tree_map(lambda x: x.sharding, arg_shapes)
     q_sharding = arg_shardings[0]
     k_sharding = arg_shardings[1]
@@ -95,7 +95,7 @@ _flash_mha_fwd_hlo_sharded.def_partition(
     infer_sharding_from_operands=infer_sharding_fwd,
     partition=partition_fwd)
 
-def infer_sharding_bwd(softmax_scale, is_causal, window_size, mesh, arg_shapes, result_shape):
+def infer_sharding_bwd(softmax_scale, is_causal, window_size, deg, mesh, arg_shapes, result_shape):
     # args: dout, q, k, v, out, lse
     # outs: dq, dk, dv
     # i think generally we want the output sharding for dq,dk,dv to be the same as q,k,v?
@@ -105,7 +105,7 @@ def infer_sharding_bwd(softmax_scale, is_causal, window_size, mesh, arg_shapes, 
     v_sharding = arg_shardings[3]
     return q_sharding, k_sharding, v_sharding
 
-def partition_bwd(softmax_scale, is_causal, window_size, similarity, mesh, arg_shapes, result_shape):
+def partition_bwd(softmax_scale, is_causal, window_size, similarity, deg, mesh, arg_shapes, result_shape):
     result_shardings = jax.tree_map(lambda x: x.sharding, result_shape)
     arg_shardings = jax.tree_map(lambda x: x.sharding, arg_shapes)
 
@@ -140,13 +140,13 @@ def partition_bwd(softmax_scale, is_causal, window_size, similarity, mesh, arg_s
             axis_name = l
             axis_size = mesh.shape[axis_name]
             # ring attention
-            return mesh, partial(ring_bwd, softmax_scale=softmax_scale, is_causal=is_causal, axis_name=axis_name, axis_size=axis_size, similarity=similarity, mha_bwd=_flash_mha_bwd_hlo), result_shardings, arg_shardings
+            return mesh, partial(ring_bwd, softmax_scale=softmax_scale, is_causal=is_causal, axis_name=axis_name, axis_size=axis_size, similarity=similarity, deg=deg, mha_bwd=_flash_mha_bwd_hlo), result_shardings, arg_shardings
         else:
             result_shardings = q_sharding, q_sharding, q_sharding
             lse_sharding = NamedSharding(mesh, P(n,h,l))
             arg_shardings = (q_sharding,)*5 + (lse_sharding,)
     def fwd(*args):
-        return _flash_mha_bwd_hlo(*args, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity)
+        return _flash_mha_bwd_hlo(*args, softmax_scale=softmax_scale, is_causal=is_causal, window_size=window_size, similarity=similarity, deg=deg)
     return mesh, fwd, result_shardings, arg_shardings
 
 _flash_mha_bwd_hlo_sharded.def_partition(

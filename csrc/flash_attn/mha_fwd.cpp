@@ -189,7 +189,7 @@ void mha_fwd(cudaStream_t stream, void **buffers, const char* opaque, size_t opa
     set_params_splitkv(params, batch_size, num_heads,
                        head_size, seqlen_k, seqlen_q,
                        head_size_rounded, args.p_dropout, /*num_splits*/0, sm_count, args.dtype);
-
+    // printf("params.num_splits: %d\n", params.num_splits);
     // number of times random will be generated per thread, to offset philox counter in thc random
     // state
     // We use a custom RNG that increases the offset by batch_size * nheads * 32.

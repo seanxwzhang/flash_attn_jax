@@ -72,6 +72,8 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     // We exit early and write 0 to gO and gLSE. This also covers the case where actual_seqlen_k == 0.
     // Otherwise we might read OOB elements from gK and gV.
     if ((Is_causal || Is_local || !Is_even_MN) && n_block_max <= n_block_min) {
+        // printf("exit early\n");
+        // print("n_block_max: %d, n_block_min: %d\n", n_block_max, n_block_min);
         const index_t row_offset_o = binfo.q_offset(params.o_batch_stride, params.o_row_stride, bidb)
             + m_block * kBlockM * params.o_row_stride + bidh * params.o_head_stride;
         const index_t row_offset_lse = (bidb * params.h + bidh) * params.seqlen_q + m_block * kBlockM;
@@ -275,8 +277,10 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     constexpr int n_masking_steps = (!Is_causal && !Is_local)
         ? 1
         : ((Is_even_MN && Is_causal) ? cute::ceil_div(kBlockM, kBlockN) : cute::ceil_div(kBlockM, kBlockN) + 1);
+    // printf("n_masking_steps: %d\n", n_masking_steps);
     #pragma unroll
     for (int masking_step = 0; masking_step < n_masking_steps; ++masking_step, --n_block) {
+        // printf("inside loop: masking_step: %d, n_masking_steps: %d\n", masking_step, n_masking_steps);
         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
         clear(acc_s);
         flash::cp_async_wait<0>();
@@ -352,7 +356,9 @@ inline __device__ void compute_attn_1rowblock(const Params &params, const int bi
     }
 
     // These are the iterations where we don't need masking on S
+    // printf("n_block_min: %d\n", n_block_min);
     for (; n_block >= n_block_min; --n_block) {
+        // printf("inside loop, n_block: %d, n_block_min: %d\n", n_block, n_block_min);
         Tensor acc_s = partition_fragment_C(tiled_mma, Shape<Int<kBlockM>, Int<kBlockN>>{});  // (MMA=4, MMA_M, MMA_N)
         clear(acc_s);
         flash::cp_async_wait<0>();
@@ -809,8 +815,8 @@ inline __device__ void compute_attn_1rowblock_splitkv(const Params &params, cons
     // __syncthreads();
 
     clear(acc_o);
-
-    flash::Softmax<2 * size<1>(acc_o)> softmax;
+    // if (cute::thread0()) {printf("In splitkv path");}
+    flash::Softmax<2 * size<1>(acc_o)> softmax(params.is_sympower, params.deg);
 
     const float alibi_slope = !Has_alibi ? 0.0f : reinterpret_cast<float *>(params.alibi_slopes_ptr)[bidb * params.alibi_slopes_batch_stride + bidh] / params.scale_softmax;
     flash::Mask<Is_causal, Is_local, Has_alibi> mask(binfo.actual_seqlen_k, binfo.actual_seqlen_q, params.window_size_left, params.window_size_right, alibi_slope);

@@ -586,14 +586,14 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
             return p * (!Is_dropout || p >= 0 ? dp - d : d);
         };
         if (params.is_sympower) {
-            int sign;
+            float sign;
             #pragma unroll
             for (int mi = 0; mi < size<0>(dS); ++mi) {
                 #pragma unroll
                 for (int ni = 0; ni < size<1>(dS); ++ni) {
                     dS(mi, ni) = pointwise_mult(scores(mi, ni), dS(mi, ni), dP_sum(mi));
                     // one more backprop
-                    sign = scores_orig(mi, ni) < 0 ? -1 : 1;
+                    sign = scores_orig(mi, ni) < 0 ? -1.0 : 1.0;
                     // if (cute::thread(1, 0)) {
                     //     printf("mi(%d), ni(%d)\n", mi, ni);
                     //     printf("dS(mi, ni): %f\n", dS(mi, ni));
@@ -602,7 +602,7 @@ inline __device__ void compute_dq_dk_dv_1colblock(const Params &params, const in
                     //     printf("dS(mi, ni): %f\n", dS(mi, ni));
                     //     printf("deg: %f\n", params.deg);
                     // }
-                    dS(mi, ni) = sign * params.deg / (cuda_abs(scores_orig(mi, ni)) + 1e-6f) * dS(mi, ni);
+                    dS(mi, ni) = static_cast<float>(static_cast<double>(sign * params.deg) / static_cast<double>((cuda_abs(scores_orig(mi, ni)) + 1e-6f))) * dS(mi, ni);
                 }
             }
         } else {

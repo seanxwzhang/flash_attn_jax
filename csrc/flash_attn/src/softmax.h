@@ -92,7 +92,7 @@ __forceinline__ __device__ void apply_abslogp(Tensor<Engine0, Layout0> &scores, 
         #pragma unroll
         for (int ni = 0; ni < size<1>(scores); ++ni) {
             // maintain semantics of mask
-            scores(mi, ni) = scores(mi, ni) == -INFINITY ? -INFINITY : power * __logf(cuda_abs(scores(mi, ni)) + epsilon);
+            scores(mi, ni) = scores(mi, ni) == -INFINITY ? -INFINITY : static_cast<float>(power * log(static_cast<double>(cuda_abs(scores(mi, ni)) + epsilon)));
         }
     }
 }
@@ -215,6 +215,7 @@ struct Softmax {
             float sum = row_sum(mi);
             float inv_sum = (sum == 0.f || sum != sum) ? 1.f : 1.f / sum;
             lse(mi) = (sum == 0.f || sum != sum) ? (Split ? -INFINITY : INFINITY) : row_max(mi) * softmax_scale + __logf(sum);
+            // printf("mi: %d, row_max: %f, sum: %f, softmax_scale: %f, lse: %f\n", mi, row_max(mi), sum, softmax_scale, lse(mi));
             float scale = !Is_dropout ? inv_sum : inv_sum * rp_dropout;
             #pragma unroll
             for (int ni = 0; ni < size<1>(acc_o_rowcol); ++ni) { acc_o_rowcol(mi, ni) *= scale; }

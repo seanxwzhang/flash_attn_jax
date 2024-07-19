@@ -181,9 +181,9 @@ def mha_bwd_batch(vector_arg_values, batch_axes, **kwargs):
                 return einops.rearrange(val, f'{dims} -> (x n) h l')
         do, q, k, v, o, lse = [squish(x, axis) for x, axis in zip(vector_arg_values, batch_axes)]
         dq, dk, dv = _flash_mha_bwd_p.bind(do, q, k, v, o, lse, **kwargs)
-        dq = einops.rearrange(dq, '(n x) l h d -> x n l h d', x=x)
-        dk = einops.rearrange(dk, '(n x) l h d -> x n l h d', x=x)
-        dv = einops.rearrange(dv, '(n x) l h d -> x n l h d', x=x)
+        dq = einops.rearrange(dq, '(x n) l h d -> x n l h d', x=x)
+        dk = einops.rearrange(dk, '(x n) l h d -> x n l h d', x=x)
+        dv = einops.rearrange(dv, '(x n) l h d -> x n l h d', x=x)
         return (dq,dk,dv), (0,0,0)
     elif mapped == (True, True, False, False, True, True):
         # Everything is mapped except k and v, which is a GQA backward

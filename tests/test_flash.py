@@ -31,7 +31,7 @@ def check(ref_out, jax_out, out):
     def check1(ref_out, jax_out, out):
         max_err = jnp.max(jnp.abs(out - ref_out)).item()
         jax_max_err = jnp.max(jnp.abs(jax_out - ref_out)).item()
-        assert jnp.max(jnp.abs(out - ref_out)).item() <= 5 * jnp.max(jnp.abs(jax_out - ref_out)).item(), ("max_err", max_err, "jax_max_err", jax_max_err, pretty(jnp.abs(out - ref_out)), 'vs', pretty(jnp.abs(jax_out - ref_out)))
+        assert jnp.max(jnp.abs(out - ref_out)).item() <= 2 * jnp.max(jnp.abs(jax_out - ref_out)).item(), ("max_err", max_err, "jax_max_err", jax_max_err, pretty(jnp.abs(out - ref_out)), 'vs', pretty(jnp.abs(jax_out - ref_out)))
     tree_map(check1, ref_out, jax_out, out)
 
 @pytest.mark.parametrize("dtype", [jnp.float16, jnp.bfloat16])
